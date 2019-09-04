@@ -1,0 +1,92 @@
+---
+ 
+- name: Create maintenance Page iRule and files on F5
+  hosts: localhost
+  connection: local
+
+    #### Required Variables ####
+    #nbg_partition:
+    #vip: 
+    #app_name: 
+    #app_long_name:
+    #logging_pool_environment:
+    #eventEnvironment:
+    #eventF5Environment:
+ 
+ 
+
+  vars:
+    provider:
+      #user: admin
+      #password: admin
+      #server: "{{ server }}"
+      #validate_certs: no
+      #server_port: 443
+   
+
+  
+ 
+  tasks:
+ 
+    - name: Initialize an empty list for our strings
+      set_fact:
+        irule_list: []
+ 
+ 
+    - name: Get all of the facts from my BIG-IP
+      bigip_device_facts:
+        provider: "{{ provider }}"
+        gather_subset: "virtual-servers"
+      register: gathered_facts
+ 
+    - name: "Saving current iRule list"
+      set_fact:
+          irule_list: "{{ irule_list + item.irules }}"
+      with_items: "{{ gathered_facts.virtual_servers }}"
+      when:
+        - item.full_path  == "/{{ nbg_partition }}/{{ vip }}"
+        - item.irules is defined
+ 
+ 
+ 
+    - name: "Print current iRule List"
+      debug:
+        msg: "{{ irule_list }}"
+ 
+    - name: "Set new iRule name in variable"
+      set_fact:
+        irule_add: ["{{ app_name }}_w3jsonlogging_iRule"]
+ 
+ 
+    - name: "Add new irule to list "
+      set_fact:
+          irule_list: "{{ irule_list +  irule_add }}"
+      
+ 
+ 
+    - name: "Print updated iRule List"
+      debug:
+        msg: "{{ irule_list }}"
+ 
+ 
+    - name: Create local copy of iRule for analysis
+      local_action: template src=iRules/irule_daynamic-w3jsonlogging_v1.tcl dest=irule_daynamic-w3jsonlogging_v1.tcl
+ 
+    - name: Add the dynamic iRule contained iRules to the LTM module
+      bigip_irule:
+        content : "{{ lookup('template', 'iRules/irule_daynamic-w3jsonlogging_v1.tcl') }}"
+        module: ltm
+        partition: "{{ nbg_partition }}"
+        name: "{{ app_name }}_w3jsonlogging_iRule"
+        state: present
+        provider: "{{ provider }}"
+      delegate_to: localhost
+ 
+ 
+    - name: ATTACH iRules to vip
+      bigip_virtual_server:
+        provider: "{{ provider }}"
+        partition: "{{ nbg_partition }}"
+        name: "{{ vip }}"
+        irules: "{{ irule_list }}"
+      delegate_to: localhost
